@@ -12,6 +12,8 @@ import IPython.display as display
 import PIL.Image
 import time
 
+# Function to take image input, scale it , convert it to a four dimensional tensor with values normalized between 0 and 1
+# a new dimension for batch size is added
 def load_img(path_to_img, max_dim):
     img=tf.io.read_file(path_to_img)
     img=tf.image.decode_image(img, channels=3)
@@ -26,18 +28,23 @@ def load_img(path_to_img, max_dim):
                        )
     img=tf.expand_dims(img,0)
     return img
+    
+#Function to define model in Keras which takes inputs as the layers to extract from VGG19 and ouptus a model with the specified layers    
 def vgg_layers(layer_names):
     VGG19=tf.keras.applications.VGG19(include_top = False,weights="imagenet")
     out = [VGG19.get_layer(name).output for name in layer_names]
     model=tf.keras.Model(inputs=VGG19.input, outputs=out)
     return model #typ: keras.models.Model
+    
+#Fucntion to evaluate gram matrix with a four dimensional tensor input    
 def gram_matrix(input_tensor):
     # linear transformation from (b,y,x,c)-indexed array to (b,y,x)-indexed array
     temp = tf.linalg.einsum('bijc,bijd->bcd', input_tensor,input_tensor)
     shape = tf.shape(input_tensor)
     num_locations = tf.cast(shape[1]*shape[2],tf.float32)
     return temp/(num_locations)
-    
+
+#Function to define inputs and outputs of the style content model which will be used to evaluate loss    
 class StyleContentModel(tf.keras.models.Model):
     def __init__(self, style_layers, content_layers):
         super(StyleContentModel, self).__init__()
@@ -56,10 +63,12 @@ class StyleContentModel(tf.keras.models.Model):
         style_dict = {style_name:value for style_name, value in zip(self.style_layers, style_outputs)}
         return {'content':content_dict, 'style':style_dict}
         
-
+# Function to clip vlaues of a four dimensional tensor between 0 and 1
 def clip_0_1(image):
     image = tf.clip_by_value(image, clip_value_min=0, clip_value_max=1)
     return image
+    
+#Function to evaluate style loss, content loss and total loss
 def style_content_loss(outputs, style_targets, content_targets, style_weight, content_weight, num_style_layers, num_content_layers):
     style_outputs = outputs['style'] #
     content_outputs = outputs['content'] # 
@@ -75,6 +84,7 @@ def style_content_loss(outputs, style_targets, content_targets, style_weight, co
     loss = style_loss + content_loss
     return loss
 
+#Function to evaluate gradient for training and performs the gradient step
 @tf.function()
 def train_step(extractor, image, style_targets, content_targets, style_weight, content_weight,
                num_style_layers, num_content_layers, opt , total_variation_weight):
@@ -87,6 +97,8 @@ def train_step(extractor, image, style_targets, content_targets, style_weight, c
     grad = tape.gradient(loss, image)
     opt.apply_gradients([(grad, image)])
     image.assign(clip_0_1(image))
+
+# Function to convert tensor data to image object
 def tensor_to_image(tensor):
     tensor = tensor * 255
     tensor = np.array(tensor, dtype=np.uint8)
@@ -96,7 +108,7 @@ def tensor_to_image(tensor):
     return PIL.Image.fromarray(tensor)
 
 
-
+# Main function to call necessary functions to  - initlaize the models, evlauate loss, perform the gradient step for optimization over loss
 def main(content_path,style_path, dim, epochs,steps_per_epoch,save_path,total_variation_weight,content_weight,style_weight):
     # change:
     # initialize image (content_image, random, constant)
@@ -137,7 +149,7 @@ def main(content_path,style_path, dim, epochs,steps_per_epoch,save_path,total_va
     tensor_to_image(image).save(save_path)
 
 
-
+# Argument parser to make trainig easier on Cluster by giving required inputs in the terminal
 if __name__ == "__main__":
    
     ap = argparse.ArgumentParser()
